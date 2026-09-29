@@ -1,0 +1,19 @@
+[project]
+name = "lpu"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "jupyter>=1.1.1",
+    "jupytext>=1.19.4",
+    "kagglehub>=1.0.2",
+    "matplotlib>=3.11.0",
+    "numpy>=2.4.6",
+    "ruff>=0.15.18",
+    "scikit-image>=0.26.0",
+    "scikit-learn>=1.9.0",
+    "torch>=2.12.1",
+    "torchvision>=0.27.1",
+    "ty>=0.0.51",
+]

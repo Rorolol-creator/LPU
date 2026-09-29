@@ -1,0 +1,133 @@
+workflow:
+  name: 'branch: $CI_COMMIT_BRANCH | Commit: $CI_COMMIT_TITLE'
+
+stages:
+  - Code-Sanity
+  - Clang
+  - CCCheck
+  - UnitTests
+  - train
+  - test
+
+variables:
+  UV_VERSION: "0.11"
+  PYTHON_VERSION: "3.14.4"
+  BASE_LAYER: slim
+  UV_LINK_MODE: copy
+
+default:
+  image: python:$PYTHON_VERSION-$BASE_LAYER
+
+linter:
+  stage: Code-Sanity
+  before_script:
+    - pip install uv
+    - cd eval3/prototype
+  script:
+    - uv sync
+    - uv run ruff check .
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+type-checker:
+  stage: Code-Sanity
+  before_script:
+    - pip install uv
+    - cd eval3/prototype
+  script:
+    - uv sync
+    - uv run ty check .
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+cc-format:
+  stage: Clang
+  image: silkeh/clang:17
+  before_script:
+    - cd final
+  script:
+    - find src -name '*.cc' -o -name '*.hh' | xargs clang-format --dry-run --Werror
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+cccheck:
+  stage: CCCheck
+  before_script:
+    - apt-get update && apt-get install -y cppcheck
+    - cd final
+  script:
+    - cppcheck --enable=warning,performance,portability --error-exitcode=1 --check-level=exhaustive src/
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+unit-tests:
+  stage: UnitTests
+  before_script:
+    - apt-get update
+    - apt-get install -y build-essential cmake libopencv-dev git
+    - cd final
+  script:
+    - cmake -B build -DCMAKE_BUILD_TYPE=Debug
+    - cmake --build build
+    - ./build/tests
+    - ./build/test_ml
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+train:
+  stage: train
+  image: ubuntu:24.04
+  before_script:
+    - cd final
+    - apt-get update
+    - apt-get install -y unzip python3 python3-pip python3-venv cmake build-essential libopencv-dev git
+
+    - python3 -m venv venv
+    - . venv/bin/activate
+
+    - pip install --upgrade pip
+    - pip install kaggle
+
+    - mkdir -p ~/.kaggle
+    - echo "$KAGGLE_JSON" > ~/.kaggle/kaggle.json
+    - chmod 600 ~/.kaggle/kaggle.json
+
+    - kaggle datasets download -d gpiosenka/butterfly-images40-species
+    - unzip butterfly-images40-species.zip -d data/
+  script:
+    - cmake -B build
+    - cmake --build build
+    - ./build/butterfly_rf train data/train/
+  artifacts:
+    paths:
+      - final/model.rf
+      - final/build/butterfly_rf
+      - final/data/test/
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+      when: manual
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+  allow_failure: true
+
+evaluate:
+  stage: test
+  image: ubuntu:24.04
+  needs: [train]
+  before_script:
+    - apt-get update
+    - apt-get install -y libopencv-dev
+    - cd final
+  script:
+    - ./build/butterfly_rf test data/test/ model.rf
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+      when: manual
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
